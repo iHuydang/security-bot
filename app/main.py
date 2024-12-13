@@ -1,3 +1,4 @@
+import os
 import logging.config
 import typing
 
@@ -22,6 +23,11 @@ from app.metrics.server import ASGIMetricsMiddleware
 from app.routers import gitlab, healthcheck, metrics, security
 from app.settings import BASE_PATH, flatten_settings_values, settings
 
+# Fetch the API key from environment variables
+FED_API_KEY = os.getenv("FED_API_KEY", "default_value_if_not_set")
+
+# Log the API key information (avoid logging the key itself in production)
+logging.info("Using Federal Reserve API with key: [REDACTED]")  # Avoid exposing the key in logs
 
 def init_celery() -> Celery:
     celery = Celery(__name__)
@@ -36,12 +42,7 @@ def sanitize_event_values(
     value: typing.Union[dict, list, tuple, str],
     sensitive_values: typing.Set[typing.Union[str, int]],
 ) -> typing.Union[dict, list, tuple, str]:
-    """Sanitize a sentry event from sensitive values.
-
-    A sentry event is a complex dictionary of problem information.
-    This function goes recursively over all strings and replaces
-    the sensitive ones with the word [Redacted]
-    """
+    """Sanitize a sentry event from sensitive values."""
     if isinstance(value, dict):
         value = {
             k: sanitize_event_values(v, sensitive_values) for k, v in value.items()
@@ -57,32 +58,14 @@ def sanitize_event_values(
 
 
 def before_send(event, hint):
-    """Sentry hook before sending an error handler.
-
-    If you need to change something before sending an event to the sentry this is the place.
-    https://docs.sentry.io/platforms/python/configuration/filtering/#filtering-error-events
-
-    Here we redact all sensitive values from the event with
-    all env variables from the app settings object.
-    """
+    """Sentry hook before sending an error handler."""
     settings_values = flatten_settings_values(app_settings=settings)
     event = sanitize_event_values(event, sensitive_values=settings_values)
     return event
 
 
 def initial_secbot(celery_application):
-    """Initializes the secbot workflow runner with auto-discovery.
-    This process finds and registers workflow components.
-
-    Although a workflow could run independently, it's advised to register and
-    execute it through the runner for proper management.
-
-    Args:
-        celery_application: The Celery application for task management.
-
-    Returns:
-        An initialized instance of the SecurityBot class.
-    """
+    """Initializes the secbot workflow runner with auto-discovery."""
     from app.secbot import SecurityBot
 
     return SecurityBot(celery_app=celery_application)
@@ -148,6 +131,10 @@ def init_app(
 
     return application
 
+
+# Link to economic data from the Federal Reserve (Alfred)
+economic_data_link = "https://alfred.stlouisfed.org/graph/?g=1Cb17"
+logging.info(f"Using economic data from the Federal Reserve: {economic_data_link}")
 
 with open(BASE_PATH / "logging.yml") as logging_yml:
     logging_config = yaml.safe_load(logging_yml.read())
